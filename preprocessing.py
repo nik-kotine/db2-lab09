@@ -1,9 +1,15 @@
 import json
+import math
+
 import connect
 import nltk
+
+
 import pandas as pd
 from nltk.stem import SnowballStemmer
 import re
+nltk.download('punkt_tab')
+
 
 noticias_df = connect.fetch_data()
 stemmer = SnowballStemmer('spanish')
@@ -92,9 +98,62 @@ def fetch_data_bow():
     conn.close()
     return df
 
+
+def boolean_search_linear(query, dataframe):
+    baselist = query.split(" ")
+    if (len(baselist) % 2 == 0 and baselist[0] != "NOT") or (len(baselist) % 2 == 1 and baselist[0] == "NOT"):
+        raise ValueError("Invalid amount of words in query - must be odd")
+    negatefirst = False
+    toggle = True
+    if baselist[0] == "NOT":
+        negatefirst = True
+        baselist.pop(0)
+    words = []
+    operators = []
+    nots = []
+
+    for i in range(len(baselist)):
+        e = baselist[i]
+        if toggle:
+            words.append(stemmer.stem(e))
+        else:
+            if e == "AND" or e == "OR":
+                operators.append(e)
+                nots.append(False)
+            elif e == "AND-NOT":
+                operators.append("AND")
+                nots.append(True)
+            elif e == "OR-NOT":
+                operators.append("OR")
+                nots.append(True)
+            else:
+                raise ValueError("Invalid operator")
+        toggle = not toggle
+    output = []
+    for index, row in dataframe.iterrows():
+        current_result = words[0] in row["bag_of_words"] if not negatefirst else words[0] not in row["bag_of_words"]
+        for i in range(1, len(words)):
+            curr = words[i] in row["bag_of_words"] if not nots[i] else words[i] not in row["bag_of_words"]
+            if operators[i - 1] == "AND":
+                current_result = curr and current_result
+            elif operators[i - 1] == "OR":
+                current_result = curr or current_result
+            else:
+                raise ValueError("Invalid operator")
+        output.append(current_result)
+
+    print(output)
+
+
 if __name__ == '__main__':
 
     update_bow_in_db(noticias_df)
     noticias_bow_df = fetch_data_bow()
     print(noticias_bow_df)
-    # remove_bow_from_db(noticias_df)
+    #remove_bow_from_db(noticias_df)
+    #noticias_bow_df = fetch_data_bow()
+    #print(noticias_bow_df)
+
+    boolean_search_linear("economía AND inflación", noticias_bow_df)
+    boolean_search_linear("banca OR finanzas", noticias_bow_df)
+    boolean_search_linear("tecnología AND-NOT inflación", noticias_bow_df)
